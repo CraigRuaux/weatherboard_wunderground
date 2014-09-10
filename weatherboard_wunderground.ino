@@ -661,8 +661,8 @@ void checkCharge()
 
 // local variables  
 boolean chargeState;
-int now=millis();
-int chargeStart;  //millis value for start of charging
+long now=millis();
+long chargeStart;  //millis value for start of charging
 
 if (batt_volts<2.99)
 {
