@@ -664,7 +664,7 @@ boolean chargeState;
 long now=millis();
 long chargeStart;  //millis value for start of charging
 
-if (batt_volts<2.99)
+if (batt_volts<3.5)
 {
   if (chargeState==false)
   {
