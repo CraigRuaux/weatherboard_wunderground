@@ -262,8 +262,8 @@ void setup()
   Serial.println("RESET");
 
   // initialize BMP085 pressure sensor
-  if (pressure_sensor.begin() == 0)
-    error(1);
+//  if (pressure_sensor.begin() == 0)
+//    error(1);
 
   // init wind speed interrupt global variables
   gotwspeed = false; windRPM = 0; windintcount = 0;
@@ -417,24 +417,24 @@ void loop()
   if (status != 0)
     delay(status); // if nonzero, status is number of ms to wait for reading to become available
   else
-    error(2);
+//    error(2);
     
   // retrieve BMP085 temperature reading
   status = pressure_sensor.getTemperature(&BMP085_temp); // deg C
   if (status == 0)
-    error(3);
+ //   error(3);
   
   // start BMP085 pressure reading
   status = pressure_sensor.startPressure(3);
   if (status != 0)
     delay(status); // if nonzero, status is number of ms to wait for reading to become available
   else
-    error(4);
+ //   error(4);
     
   // retrieve BMP085 pressure reading
   status = pressure_sensor.getPressure(&BMP085_pressure, &BMP085_temp); // mbar, deg C
   if (status == 0)
-    error(5);
+//    error(5);
  
   // compensate for altitude if needed
   if (pressure_type == RELATIVE)
@@ -781,11 +781,6 @@ float get_wind_speed()
 	return(windSpeed);
 }
 
-
-void error(int errorcode) // save some space by printing out a generic error message
-{
-  Serial.print("ERROR #"); Serial.print(errorcode,DEC); Serial.println(", see sketch for cause");
-}
 
 void printComma() // we do this a lot, it saves two bytes each time we call it
 {
