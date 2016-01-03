@@ -669,7 +669,8 @@ int averageAnalogRead(int pinToRead)  //From WIMP firmware
 }
 
 
-char getChar()
+//Do we actually need this?
+/*char getChar() 
 // wait for one character to be typed (and convert to uppercase if it's alphabetic)
 {
   digitalWrite(STATUSLED,HIGH);
@@ -678,6 +679,7 @@ char getChar()
   digitalWrite(STATUSLED,LOW);
   return(toupper(Serial.read())); // return the upper case character
 }
+
 
 long getLong()
 // wait for a number to be input (end with return), allows backspace and negative
@@ -723,7 +725,7 @@ long getLong()
   // convert string to long using ASCII-to-long standard function
   return(atol(mystring));
 }
-
+*/
 void storeEEPROMsettings()
 // store all the user-changable settings in EEPROM so it survives power cycles
 // note that ints are two bytes, longs are four
@@ -781,11 +783,6 @@ float get_wind_speed()
 	return(windSpeed);
 }
 
-
-void printComma() // we do this a lot, it saves two bytes each time we call it
-{
-  Serial.print(",");
-}
 
 void checkCharge()
 {
