@@ -669,63 +669,6 @@ int averageAnalogRead(int pinToRead)  //From WIMP firmware
 }
 
 
-//Do we actually need this?
-/*char getChar() 
-// wait for one character to be typed (and convert to uppercase if it's alphabetic)
-{
-  digitalWrite(STATUSLED,HIGH);
-  while (!Serial.available())
-    {;} // wait here forever for a character
-  digitalWrite(STATUSLED,LOW);
-  return(toupper(Serial.read())); // return the upper case character
-}
-
-
-long getLong()
-// wait for a number to be input (end with return), allows backspace and negative
-{
-  char mystring[10];
-  char mychar;
-  int x = 0;
-  boolean done = false;
-  
-  // input a string of characters from the user
-  
-  while (!done)
-  {
-    mychar = getChar();
-    if ((mychar == 0x0D) || (mychar == 0x0A)) // carriage return or line feed?
-    {
-      // terminate the string with 0x00 and exit
-      mystring[x] = 0;
-      done = true;
-    }
-    else
-    {
-      if ((mychar == 0x08) && (x > 0)) // backspace?
-      {
-        // simulate a backspace - back up, print a space to erase character, and backspace again
-        Serial.write(0x08);
-        Serial.print(" ");
-        Serial.write(0x08);
-        x--;
-      }
-      else // a real character?
-      {
-//        if ((mychar != 0x08) && (x < 10)) 
-        if (x < 10)
-        {
-          Serial.print(mychar);
-          mystring[x] = mychar;
-          x++;
-        }
-      }
-    }
-  }
-  // convert string to long using ASCII-to-long standard function
-  return(atol(mystring));
-}
-*/
 void storeEEPROMsettings()
 // store all the user-changable settings in EEPROM so it survives power cycles
 // note that ints are two bytes, longs are four
