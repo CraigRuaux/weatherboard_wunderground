@@ -84,6 +84,39 @@ long lastWindCheck = 0;
 volatile long lastWindIRQ = 0;
 volatile byte windClicks = 0;
 
+//We need to keep track of the following variables:
+//Wind speed/dir each update (no storage)
+//Wind gust/dir over the day (no storage)
+//Wind speed/dir, avg over 2 minutes (store 1 per second)
+//Wind gust/dir over last 10 minutes (store 1 per minute)
+//Rain over the past hour (store 1 per minute)
+//Total rain over date (store one per day)
+
+byte windspdavg[120]; //120 bytes to keep track of 2 minute average
+#define WIND_DIR_AVG_SIZE 120
+int winddiravg[WIND_DIR_AVG_SIZE]; //120 ints to keep track of 2 minute average
+float windgust_10m[10]; //10 floats to keep track of largest gust in the last 10 minutes
+int windgustdirection_10m[10]; //10 ints to keep track of 10 minute max
+volatile float rainHour[60]; //60 floating numbers to keep track of 60 minutes of rain
+
+//These are all the weather values that wunderground expects:
+int winddir; // [0-360 instantaneous wind direction]
+float windspeedmph; // [mph instantaneous wind speed]
+float windgustmph; // [mph current wind gust, using software specific time period]
+int windgustdir; // [0-360 using software specific time period]
+float windspdmph_avg2m; // [mph 2 minute average wind speed mph]
+int winddir_avg2m; // [0-360 2 minute average wind direction]
+float windgustmph_10m; // [mph past 10 minutes wind gust mph ]
+int windgustdir_10m; // [0-360 past 10 minutes wind gust direction]
+float humidity; // [%]
+float tempf; // [temperature F]
+float rainin; // [rain inches over the past hour)] -- the accumulated rainfall in the past 60 min
+volatile float dailyrainin; // [rain inches so far today in local time]
+//float baromin = 30.03;// [barom in] - It's hard to calculate baromin locally, do this in the agent
+float pressure;
+//float dewptf; // [dewpoint F] - It's hard to calculate dewpoint locally, do this in the agent
+
+
 // Measurement variables
 float SHT15_humidity;
 float SHT15_temp;
@@ -91,8 +124,8 @@ float SHT15_dewpoint;
 double BMP085_pressure;
 double BMP085_temp;
 float TEMT6000_light;
-float WM_wspeed;
-float WM_wdirection;
+float WM_wspeed;  //Superceded by windspeedmph
+float WM_wdirection;  //Superceded by winddir
 float WM_rainfall = 0.0;
 float batt_volts;
 float TSL2561_lux;
@@ -172,50 +205,36 @@ void rainIRQ()
 // if the Weather Meters are attached, count rain gauge bucket tips as they occur
 // activated by the magnet and reed switch in the rain gauge, attached to input D2
 {
-  raintime = micros(); // grab current time
+  raintime = millis(); // grab current time
   raininterval = raintime - rainlast; // calculate interval between this and last event
 
-  if (raininterval > 100) // ignore switch-bounce glitches less than 100uS after initial edge
+  if (raininterval > 10) // ignore switch-bounce glitches less than 10uS after initial edge  (Bounce time reduced from 100 to 10)
   {
-    rain++; // increment bucket counter
-    rainlast = raintime; // set up for next event
+        dailyrainin += 0.011; //Each dump is 0.011" of water
+        rainHour[minutes] += 0.011; //Increase this minute's amount of rain
+        
+        rainlast = raintime; // set up for next event
   }
 }
 
+// wspeedIRQ() was completely replaced by code from WIMP Station 1/3/16
 void wspeedIRQ()
-// if the Weather Meters are attached, measure anemometer RPM (2 ticks per rotation), set flag if RPM is updated
-// activated by the magnet in the anemometer (2 ticks per rotation), attached to input D3
-
-// this routine measures RPM by measuring the time between anemometer pulses
-// windintcount is the number of pulses we've measured - we need two to measure one full rotation (eliminates any bias between the position of the two magnets)
-// when windintcount is 2, we can calculate the RPM based on the total time from when we got the first pulse
-// note that this routine still needs an outside mechanism to zero the RPM if the anemometer is stopped (no pulses occur within a given period of time)
+// Activated by the magnet in the anemometer (2 ticks per rotation), attached to input D3
 {
-  windtime = micros(); // grab current time
-  if ((windintcount == 0) || ((windtime - windlast) > 10000)) // ignore switch-bounce glitches less than 10ms after the reed switch closes
-  {
-    if (windintcount == 0) // if we're starting a new measurement, reset the interval
-      windinterval = 0;  
-    else
-      windinterval += (windtime - windlast); // otherwise, add current interval to the interval timer
-
-    if (windintcount == 2) // we have two measurements (one full rotation), so calculate result and start a new measurement
-    {
-      tempwindRPM = (60000000ul / windinterval); // calculate RPM (temporary since it may change unexpectedly)
-      windintcount = 0;
-      windinterval = 0;  
-      gotwspeed = true; // set flag for main loop
-    }
-
-    windintcount++;    
-    windlast = windtime; // save the current time so that we can calculate the interval between now and the next interrupt
-  }
+	if (millis() - lastWindIRQ > 10) // Ignore switch-bounce glitches less than 10ms (142MPH max reading) after the reed switch closes
+	{
+		lastWindIRQ = millis(); //Grab the current time
+		windClicks++; //There is 1.492MPH for each click per second.
+	}
 }
 
 void setup()
 // this procedure runs once upon startup or reboot
 // perform all the settings we need before running the main loop
 {
+  seconds = 0;
+  lastSecond = millis();
+  
   // set up inputs and outputs
   pinMode(XCLR,OUTPUT); // output to BMP085 reset (unused)
   digitalWrite(XCLR,HIGH); // make pin high to turn off reset 
@@ -225,11 +244,10 @@ void setup()
   
   pinMode(STATUSLED,OUTPUT); // output to status LED
   
-  pinMode(WSPEED,INPUT); // input from wind meters windspeed sensor
-  digitalWrite(WSPEED,HIGH); // turn on pullup
+  pinMode(WSPEED,INPUT_PULLUP); // input from wind meters windspeed sensor
+   
+  pinMode(RAIN,INPUT_PULLUP); // input from wind meters rain gauge sensor
   
-  pinMode(RAIN,INPUT); // input from wind meters rain gauge sensor
-  digitalWrite(RAIN,HIGH); // turn on pullup
 
   pinMode(chargePin, OUTPUT); // output for transistor to switch charge, used in checkCharge()
 
@@ -283,11 +301,68 @@ void loop()
   char status;
   
   // record current time so we can sample at regular intervals
-  loopstart = millis();
+ /* loopstart = millis();
   loopend = loopstart + (sample_rate * 1000ul);
+  
 
   // turn on LED while we're doing measurements
   digitalWrite(STATUSLED,HIGH);
+*/
+
+//New from WIMP station firmware
+//Keep track of which minute it is
+	if(millis() - lastSecond >= 1000)
+	{
+		lastSecond += 1000;
+
+		//Take a speed and direction reading every second for 2 minute average
+		if(++seconds_2m > 119) seconds_2m = 0;
+
+		//Calc the wind speed and direction every second for 120 second to get 2 minute average
+		windspeedmph = get_wind_speed();
+		winddir = get_wind_direction();
+		windspdavg[seconds_2m] = (int)windspeedmph;
+		winddiravg[seconds_2m] = winddir;
+		//if(seconds_2m % 10 == 0) displayArrays();
+
+		//Check to see if this is a gust for the minute
+		if(windspeedmph > windgust_10m[minutes_10m])
+		{
+			windgust_10m[minutes_10m] = windspeedmph;
+			windgustdirection_10m[minutes_10m] = winddir;
+		}
+
+		//Check to see if this is a gust for the day
+		//Resets at midnight each night
+		if(windspeedmph > windgustmph)
+		{
+			windgustmph = windspeedmph;
+			windgustdir = winddir;
+		}
+
+		//Blink stat LED briefly to show we are alive
+		digitalWrite(STATUSLED, HIGH);
+		//reportWeather(); //Print the current readings. Takes 172ms.
+		delay(25);
+		digitalWrite(STATUSLED, LOW);
+
+		//If we roll over 60 seconds then update the arrays for rain and windgust
+		if(++seconds > 59)
+		{
+			seconds = 0;
+
+			if(++minutes > 59) minutes = 0;
+			if(++minutes_10m > 9) minutes_10m = 0;
+
+			rainHour[minutes] = 0; //Zero out this minute's rainfall amount
+			windgust_10m[minutes_10m] = 0; //Zero out this minute's gust
+
+			minutesSinceLastReset++; //It's been another minute since last night's midnight reset
+		}
+	}
+
+
+
 
   // an interrupt occurred, handle it now
   if (gotwspeed)
@@ -486,7 +561,7 @@ void loop()
   }
 
   // turn off LED (done with measurements)
-  digitalWrite(STATUSLED,LOW);
+ // digitalWrite(STATUSLED,LOW);
 
  checkCharge();
 
@@ -652,16 +727,25 @@ void retrieveEEPROMsettings()
   templong = eeprom_read_dword((uint32_t*)22); if (templong != -1) sample_rate = templong;
 }
 
-void ansiClear()
-// send ANSI clear screen command
-// used by ANSI output format
+//Returns the instataneous wind speed
+float get_wind_speed()
 {
-  // send ESC [2J
-  // which will clear the screen on an ANSI terminal
-  Serial.write(27);
-  Serial.write(91);
-  Serial.write(50);
-  Serial.write(74);
+	float deltaTime = millis() - lastWindCheck; //750ms
+
+	deltaTime /= 1000.0; //Covert to seconds
+
+	float windSpeed = (float)windClicks / deltaTime; //3 / 0.750s = 4
+
+	windClicks = 0; //Reset and start watching for new wind
+	lastWindCheck = millis();
+
+	windSpeed *= 1.492; //4 * 1.492 = 5.968MPH
+
+	/* Serial.println();
+	 Serial.print("Windspeed:");
+	 Serial.println(windSpeed);*/
+
+	return(windSpeed);
 }
 
 
