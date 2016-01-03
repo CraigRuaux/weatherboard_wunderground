@@ -1,11 +1,17 @@
 
 
+// This is a fork of the
 // USB Weather Board V3 firmware
+// originally written by
 // Mike Grusin, SparkFun Electronics
 // www.sparkfun.com
+// This version implements daily resetting of accumulated rain, wind maxima etc as per the Sparkfun Wireless Weather station https://learn.sparkfun.com/tutorials/weather-station-wirelessly-connected-to-wunderground
+// This version also implements a self-switching back up power supply for a solar charging system
+// This fork written by Craig Ruaux, with code included from the WIMP station by Nate Siedle, linked above.
 
 // Compile and load onto SparkFun USB Weather Board V3 using Arduino development envrionment,
 // Download from www.arduino.cc
+// Tools/Board: "Arduino Pro or Pro Mini (3.3V, 8MHz) w/ATmega 328"
 
 // Uses the SHT15x library by Jonathan Oxer et.al.
 // Supplied with this software distribution, or download from https://github.com/practicalarduino/SHT1x.
@@ -66,6 +72,19 @@ const int BATT_LVL = 6;
 const int WDIR = 0;
 
 // global variables
+// Daily totals variables from WIMP Firmware
+long lastSecond; //The millis counter to see when a second rolls by
+unsigned int minutesSinceLastReset; //Used to reset variables after 24 hours. Imp should tell us when it's midnight, this is backup.
+byte seconds; //When it hits 60, increase the current minute
+byte seconds_2m; //Keeps track of the "wind speed/dir avg" over last 2 minutes array of data
+byte minutes; //Keeps track of where we are in various arrays of data
+byte minutes_10m; //Keeps track of where we are in wind gust/dir over last 10 minutes array of data
+
+long lastWindCheck = 0;
+volatile long lastWindIRQ = 0;
+volatile byte windClicks = 0;
+
+// Measurement variables
 float SHT15_humidity;
 float SHT15_temp;
 float SHT15_dewpoint;
@@ -130,7 +149,7 @@ boolean weather_meters_attached = true; // true if we've hooked up SparkFun's We
 long baud_rate = 9600; // default baud rate
 
 // hardware memory pointers, used by freeMemory() (see: http://www.arduino.cc/playground/Code/AvailableMemory)
-
+/*
 extern unsigned int __bss_end;
 extern unsigned int __heap_start;
 extern void *__brkval;
@@ -146,7 +165,7 @@ int freeMemory()
 
   return free_memory;
 }
-
+*/
 // interrupt routines (these are called by the hardware interrupts, not by the main code)
 
 void rainIRQ()
