@@ -131,6 +131,8 @@ float batt_volts;
 float TSL2561_lux;
 int LED = 0; // status LED
 unsigned int windRPM, stopped;
+float light_lvl;
+float batt_lvl;
 
 // volatiles are subject to modification by IRQs
 volatile unsigned long tempwindRPM, windtime, windlast, windinterval;
@@ -465,7 +467,7 @@ void loop()
   }
 
   // get light
-//  TEMT6000_light = (1023.0 - float(analogRead(LIGHT))) / 10.23; // 0-100 percent
+  TEMT6000_light = (1023.0 - float(analogRead(LIGHT))) / 10.23; // 0-100 percent
 
   // windspeed unit conversion
   switch (general_units)
@@ -502,7 +504,9 @@ void loop()
   // below are a bunch of nested switch statements to handle the different output data_formats that are possible
   // feel free to modify them or add your own!
 
-  switch (data_format)
+ /*
+Removed with change to WIMP code, 1/3/16
+ switch (data_format)
   {
 
     case CSV: // data_format: comma-separated values  Altered to report one at a time.
@@ -562,7 +566,7 @@ void loop()
 
   // turn off LED (done with measurements)
  // digitalWrite(STATUSLED,LOW);
-
+*/
  checkCharge();
 
 /*  // we're done sampling all the sensors and printing out the results
@@ -579,16 +583,27 @@ void loop()
       }
     }
   }
-*/  while(millis() < loopend);
+    while(millis() < loopend);
+*/    
+
+	//Wait for the Parser/Uploader to ping us with the ! character
+	if(Serial.available())
+	{
+		byte incoming = Serial.read();
+		if(incoming == '!')
+		{
+			reportWeather(); //Send all the current readings out over serial
+	        }		//Serial.print("Pinged!");
+        }
 }
 
 
-float get_wind_direction() 
+int get_wind_direction() 
 // read the wind direction sensor, return heading in degrees
 {
   unsigned int adc;
   
-  adc = analogRead(WDIR); // get the current reading from the sensor
+  adc = averageAnalogRead(WDIR); // get the current reading from the sensor
   
   // The following table is ADC readings for the wind direction sensor output, sorted from low to high.
   // Each threshold is the midpoint between adjacent headings. The output is degrees for that ADC reading.
@@ -634,6 +649,17 @@ heading         resistance      volts           nominal         midpoint (<)
 270	º	98.6	k	3.15	V	978	counts	>967
 */
 
+int averageAnalogRead(int pinToRead)  //From WIMP firmware
+{
+	byte numberOfReadings = 8;
+	unsigned int runningValue = 0;
+
+	for(int x = 0 ; x < numberOfReadings ; x++)
+		runningValue += analogRead(pinToRead);
+	runningValue /= numberOfReadings;
+
+	return(runningValue);
+}
 
 
 char getChar()
@@ -786,4 +812,130 @@ if (batt_volts<3.5)
   }
  }
 }
-  
+
+//Calculates each of the variables that wunderground is expecting
+void calcWeather()
+{
+	//current winddir, current windspeed, windgustmph, and windgustdir are calculated every 100ms throughout the day
+
+	//Calc windspdmph_avg2m
+	float temp = 0;
+	for(int i = 0 ; i < 120 ; i++)
+		temp += windspdavg[i];
+	temp /= 120.0;
+	windspdmph_avg2m = temp;
+
+	//Calc winddir_avg2m, Wind Direction
+	//You can't just take the average. Google "mean of circular quantities" for more info
+	//We will use the Mitsuta method because it doesn't require trig functions
+	//And because it sounds cool.
+	//Based on: http://abelian.org/vlf/bearings.html
+	//Based on: http://stackoverflow.com/questions/1813483/averaging-angles-again
+	long sum = winddiravg[0];
+	int D = winddiravg[0];
+	for(int i = 1 ; i < WIND_DIR_AVG_SIZE ; i++)
+	{
+		int delta = winddiravg[i] - D;
+
+		if(delta < -180)
+			D += delta + 360;
+		else if(delta > 180)
+			D += delta - 360;
+		else
+			D += delta;
+
+		sum += D;
+	}
+	winddir_avg2m = sum / WIND_DIR_AVG_SIZE;
+	if(winddir_avg2m >= 360) winddir_avg2m -= 360;
+	if(winddir_avg2m < 0) winddir_avg2m += 360;
+
+
+	//Calc windgustmph_10m
+	//Calc windgustdir_10m
+	//Find the largest windgust in the last 10 minutes
+	windgustmph_10m = 0;
+	windgustdir_10m = 0;
+	//Step through the 10 minutes
+	for(int i = 0; i < 10 ; i++)
+	{
+		if(windgust_10m[i] > windgustmph_10m)
+		{
+			windgustmph_10m = windgust_10m[i];
+			windgustdir_10m = windgustdirection_10m[i];
+		}
+	}
+
+	//Calc humidity
+	humidity = SHT15_humidity;
+	//float temp_h = myHumidity.readTemperature();
+	//Serial.print(" TempH:");
+	//Serial.print(temp_h, 2);
+
+	//Calc tempf from pressure sensor
+	tempf = SHT15_temp;
+	//Serial.print(" TempP:");
+	//Serial.print(tempf, 2);
+
+	//Total rainfall for the day is calculated within the interrupt
+	//Calculate amount of rainfall for the last 60 minutes
+	rainin = 0;
+	for(int i = 0 ; i < 60 ; i++)
+		rainin += rainHour[i];
+
+	//Calc pressure
+	pressure = BMP085_pressure;
+
+	//Calc dewptf
+
+	//Calc light level
+	light_lvl = TEMT6000_light;
+
+	
+}
+
+
+  //Reports the weather string to the Uploader/Parser Board
+void reportWeather()
+{
+	calcWeather(); //Go calc all the various sensors
+
+	Serial.print("$,winddir=");
+	Serial.print(winddir);
+	Serial.print(",windspeedmph=");
+	Serial.print(windspeedmph, 1);
+	Serial.print(",windgustmph=");
+	Serial.print(windgustmph, 1);
+	Serial.print(",windgustdir=");
+	Serial.print(windgustdir);
+	Serial.print(",windspdmph_avg2m=");
+	Serial.print(windspdmph_avg2m, 1);
+	Serial.print(",winddir_avg2m=");
+	Serial.print(winddir_avg2m);
+	Serial.print(",windgustmph_10m=");
+	Serial.print(windgustmph_10m, 1);
+	Serial.print(",windgustdir_10m=");
+	Serial.print(windgustdir_10m);
+	Serial.print(",humidity=");
+	Serial.print(humidity, 1);
+	Serial.print(",tempf=");
+	Serial.print(tempf, 1);
+	Serial.print(",rainin=");
+	Serial.print(rainin, 2);
+	Serial.print(",dailyrainin=");
+	Serial.print(dailyrainin, 2);
+	Serial.print(","); //Don't print pressure= because the agent will be doing calcs on the number
+	Serial.print(BMP085_pressure, 2);
+	Serial.print(",batt_lvl=");
+	Serial.print(batt_lvl, 2);
+	Serial.print(",light_lvl=");
+	Serial.print(light_lvl, 2);
+
+
+	Serial.print(",");
+	Serial.println("#,");
+
+	//Test string
+	//Serial.println("$,winddir=270,windspeedmph=0.0,windgustmph=0.0,windgustdir=0,windspdmph_avg2m=0.0,winddir_avg2m=12,windgustmph_10m=0.0,windgustdir_10m=0,humidity=998.0,tempf=-1766.2,rainin=0.00,dailyrainin=0.00,-999.00,batt_lvl=16.11,light_lvl=3.32,#,");
+}
+
